@@ -532,7 +532,11 @@ export const tupleProcessor: Processor<schemas.$ZodTuple> = (schema, ctx, _json,
   const rest = def.rest
     ? processSchema(def.rest, ctx as any, {
         ...params,
-        path: [...params.path, restPath, ...(ctx.target === "openapi-3.0" ? [def.items.length] : [])],
+        path: [
+          ...params.path,
+          restPath,
+          ...(ctx.target === "openapi-3.0" && def.items.length ? [def.items.length] : []),
+        ],
       })
     : null;
 
@@ -547,7 +551,7 @@ export const tupleProcessor: Processor<schemas.$ZodTuple> = (schema, ctx, _json,
   const isClosed = !def.rest;
 
   if (ctx.target === "draft-2020-12") {
-    json.prefixItems = prefixItems;
+    if (prefixItems.length) json.prefixItems = prefixItems;
     if (isClosed) {
       json.items = false;
     } else if (rest) {
@@ -556,21 +560,24 @@ export const tupleProcessor: Processor<schemas.$ZodTuple> = (schema, ctx, _json,
     if (minItems > 0) json.minItems = minItems;
     if (isClosed) json.maxItems = maxItems;
   } else if (ctx.target === "openapi-3.0") {
-    json.items = {
-      anyOf: prefixItems,
-    };
-
-    if (rest) {
-      json.items.anyOf!.push(rest);
+    if (prefixItems.length) {
+      json.items = { anyOf: prefixItems };
+      if (rest) json.items.anyOf!.push(rest);
+    } else {
+      json.items = rest ?? {};
     }
     if (minItems > 0) json.minItems = minItems;
     if (isClosed) json.maxItems = maxItems;
   } else {
-    json.items = prefixItems;
-    if (isClosed) {
-      json.additionalItems = false;
+    if (prefixItems.length) {
+      json.items = prefixItems;
+      if (isClosed) {
+        json.additionalItems = false;
+      } else if (rest) {
+        json.additionalItems = rest;
+      }
     } else if (rest) {
-      json.additionalItems = rest;
+      json.items = rest;
     }
     if (minItems > 0) json.minItems = minItems;
     if (isClosed) json.maxItems = maxItems;

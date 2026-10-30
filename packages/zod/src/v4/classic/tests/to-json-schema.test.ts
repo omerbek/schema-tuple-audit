@@ -1792,12 +1792,56 @@ describe("toJSONSchema", () => {
     expect(draft2020.maxItems).toBe(0);
 
     const draft7 = z.toJSONSchema(schema, { target: "draft-7", io: "input" });
-    expect(draft7.additionalItems).toBe(false);
     expect(draft7.maxItems).toBe(0);
 
     const openapi = z.toJSONSchema(schema, { target: "openapi-3.0" });
     validateOpenAPI30Schema(openapi);
     expect(openapi.maxItems).toBe(0);
+  });
+
+  test("empty tuples emit valid item schemas across targets", async () => {
+    const closed = z.tuple([]);
+    const open = z.tuple([]).rest(z.boolean());
+
+    expect(closed.safeParse([]).success).toBe(true);
+    expect(closed.safeParse([true]).success).toBe(false);
+    expect(open.safeParse([true, false]).success).toBe(true);
+    expect(open.safeParse(["not boolean"]).success).toBe(false);
+
+    const draft2020 = z.toJSONSchema(closed, { target: "draft-2020-12" });
+    expect(draft2020).not.toHaveProperty("prefixItems");
+    expect(draft2020).toMatchObject({ type: "array", items: false, maxItems: 0 });
+    const draft2020Rest = z.toJSONSchema(open, { target: "draft-2020-12" });
+    expect(draft2020Rest).not.toHaveProperty("prefixItems");
+    expect(draft2020Rest.items).toEqual({ type: "boolean" });
+
+    const draft7 = z.toJSONSchema(closed, { target: "draft-7" });
+    expect(draft7).not.toHaveProperty("items");
+    expect(draft7).toMatchObject({ type: "array", maxItems: 0 });
+    const draft7Rest = z.toJSONSchema(open, { target: "draft-7" });
+    expect(draft7Rest.items).toEqual({ type: "boolean" });
+    expect(draft7Rest).not.toHaveProperty("additionalItems");
+
+    const openapi = z.toJSONSchema(closed, { target: "openapi-3.0" });
+    expect(openapi).toMatchObject({ type: "array", items: {}, maxItems: 0 });
+    const openapiRest = z.toJSONSchema(open, { target: "openapi-3.0" });
+    expect(openapiRest.items).toEqual({ type: "boolean" });
+    for (const schema of [openapi, openapiRest]) {
+      const result = await openAPI30Validator.validate({
+        openapi: "3.0.0",
+        info: { title: "Tuple", version: "1.0.0" },
+        components: { schemas: { tuple: schema } },
+        paths: {},
+      });
+      expect(result.valid).toBe(true);
+    }
+    const overridden = z.toJSONSchema(z.tuple([]).rest(z.string()), {
+      target: "openapi-3.0",
+      override: (ctx) => {
+        if (ctx.path.join("/") === "items") ctx.jsonSchema.description = "Rest item";
+      },
+    });
+    expect(overridden.items).toEqual({ type: "string", description: "Rest item" });
   });
 
   test("closed tuple length respects io direction with defaults", () => {
